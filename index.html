@@ -2,276 +2,196 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Shadow Strike</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shadow Strike Lite</title>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0a0a0a;
-    overflow: hidden;
-    touch-action: none;
-  }
-  canvas { display: block; background: linear-gradient(to bottom, #2c3e50, #34495e); }
-  #controls {
-    position: absolute;
-    bottom: 20px;
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    padding: 0 20px;
-  }
-  .btn {
-    width: 60px;
-    height: 60px;
-    background: rgba(255,255,255,0.2);
-    border: 2px solid #fff;
-    border-radius: 50%;
-    color: white;
-    font-size: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
+  body { margin: 0; background: #000; overflow: hidden; }
+  canvas { display: block; margin: 0 auto; }
 </style>
 </head>
 <body>
-<canvas id="game"></canvas>
-<div id="controls">
-  <div>
-    <div class="btn" id="left">◀</div>
-    <div class="btn" id="right">▶</div>
-  </div>
-  <div>
-    <div class="btn" id="jump">⤴</div>
-    <div class="btn" id="attack">⚔</div>
-  </div>
-</div>
-
 <script>
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-
-const player = {
-  x: 100,
-  y: canvas.height - 150,
-  w: 40,
-  h: 60,
-  vx: 0,
-  vy: 0,
-  speed: 5,
-  jumpPower: -15,
-  onGround: true,
-  hp: 100,
-  attacking: false,
-  attackCooldown: 0,
-  direction: 1
+const config = {
+  type: Phaser.AUTO,
+  width: 1280,
+  height: 720,
+  physics: {
+    default: 'arcade',
+    arcade: { gravity: { y: 1000 }, debug: false }
+  },
+  scene: {
+    preload: preload,
+    create: create,
+    update: update
+  }
 };
 
-const gravity = 0.8;
-let enemies = [];
-let attacks = [];
-let cameraX = 0;
+const game = new Phaser.Game(config);
 
-function spawnEnemy() {
-  enemies.push({
-    x: cameraX + canvas.width + 50,
-    y: canvas.height - 150,
-    w: 40,
-    h: 60,
-    hp: 50,
-    speed: 2,
-    attacking: false
+// Variabel global
+let player, cursors, attackKey, enemies, bullets, hpText, attackCooldown = 0;
+
+function preload() {
+  // Karena kita nggak punya sprite, pakai shape bawaan Phaser dulu
+  // Nanti ganti URL ini jadi spritesheet lu
+  this.load.image('bg', 'https://labs.phaser.io/assets/skies/space3.png');
+  this.load.image('ground', 'https://labs.phaser.io/assets/sprites/platform.png');
+}
+
+function create() {
+  // Background
+  this.add.image(640, 360, 'bg').setScale(2);
+  
+  // Ground
+  const platforms = this.physics.add.staticGroup();
+  platforms.create(640, 700, 'ground').setScale(4).refreshBody();
+
+  // Player
+  player = this.physics.add.sprite(100, 600, null);
+  player.setSize(40, 60);
+  player.setOffset(0, 0);
+  player.setCollideWorldBounds(true);
+  
+  // Bikin player keliatan pake rectangle
+  player.setTint(0x00ff88);
+  this.add.rectangle(player.x, player.y, 40, 60, 0x00ff88);
+
+  // Enemy group
+  enemies = this.physics.add.group();
+  spawnEnemy(this);
+
+  // Attack hitbox
+  bullets = this.physics.add.group();
+
+  // Collision
+  this.physics.add.collider(player, platforms);
+  this.physics.add.collider(enemies, platforms);
+  
+  // Attack hit enemy
+  this.physics.add.overlap(bullets, enemies, hitEnemy, null, this);
+  
+  // Enemy touch player
+  this.physics.add.overlap(player, enemies, hitPlayer, null, this);
+
+  // Controls
+  cursors = this.input.keyboard.createCursorKeys();
+  attackKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
+
+  // UI
+  hpText = this.add.text(20, 20, 'HP: 100', { 
+    fontSize: '32px', 
+    fill: '#00ff88',
+    fontFamily: 'Courier New'
   });
-}
+  
+  this.add.text(20, 60, 'Controls: Arrow Keys, F to Attack', { 
+    fontSize: '18px', 
+    fill: '#fff' 
+  });
 
-function drawPlayer() {
-  ctx.save();
-  ctx.translate(player.x - cameraX, player.y);
-  ctx.scale(player.direction, 1);
-
-  // Body - ganti ini jadi sprite nanti
-  ctx.fillStyle = '#00ff88';
-  ctx.fillRect(0, 0, player.w, player.h);
-
-  // Head
-  ctx.fillStyle = '#ffdbac';
-  ctx.fillRect(10, -20, 20, 20);
-
-  // Sword when attacking
-  if (player.attacking) {
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(player.w, 15, 30, 5);
-  }
-
-  ctx.restore();
-
-  // HP bar
-  ctx.fillStyle = '#ff4444';
-  ctx.fillRect(20, 20, 200, 15);
-  ctx.fillStyle = '#00ff88';
-  ctx.fillRect(20, 20, 200 * (player.hp / 100), 15);
-}
-
-function drawEnemy(e) {
-  ctx.save();
-  ctx.translate(e.x - cameraX, e.y);
-
-  ctx.fillStyle = '#ff4444';
-  ctx.fillRect(0, 0, e.w, e.h);
-
-  // HP bar kecil
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, -10, 40, 5);
-  ctx.fillStyle = '#ff4444';
-  ctx.fillRect(0, -10, 40 * (e.hp / 50), 5);
-
-  ctx.restore();
+  // Spawn enemy tiap 3 detik
+  this.time.addEvent({ delay: 3000, callback: () => spawnEnemy(this), loop: true });
 }
 
 function update() {
-  // Physics
-  player.vy += gravity;
-  player.y += player.vy;
-  player.x += player.vx;
-
-  if (player.y > canvas.height - 150) {
-    player.y = canvas.height - 150;
-    player.vy = 0;
-    player.onGround = true;
+  // Movement
+  if (cursors.left.isDown) {
+    player.setVelocityX(-300);
+    player.flipX = true;
+  } else if (cursors.right.isDown) {
+    player.setVelocityX(300);
+    player.flipX = false;
+  } else {
+    player.setVelocityX(0);
   }
 
-  // Camera follow
-  cameraX = player.x - 200;
-  if (cameraX < 0) cameraX = 0;
+  // Jump
+  if (cursors.up.isDown && player.body.touching.down) {
+    player.setVelocityY(-500);
+  }
 
-  // Attack cooldown
-  if (player.attackCooldown > 0) player.attackCooldown--;
-  if (player.attackCooldown === 0) player.attacking = false;
+  // Attack
+  if (Phaser.Input.Keyboard.JustDown(attackKey) && attackCooldown <= 0) {
+    attack(this);
+    attackCooldown = 20;
+  }
+  
+  if (attackCooldown > 0) attackCooldown--;
 
-  // Enemy AI
-  enemies.forEach(e => {
-    if (e.x > player.x) e.x -= e.speed;
-    if (e.x < player.x) e.x += e.speed;
-
-    // Enemy attack
-    if (Math.abs(e.x - player.x) < 50 && Math.random() < 0.02) {
-      player.hp -= 10;
-    }
-
-    // Check attack hit
-    attacks.forEach(a => {
-      if (a.x < e.x + e.w && a.x + a.w > e.x && a.y < e.y + e.h && a.y + a.h > e.y) {
-        e.hp -= 25;
-        a.hit = true;
+  // Update enemy AI
+  enemies.children.iterate(enemy => {
+    if (enemy && enemy.active) {
+      // Jalan ke player
+      if (enemy.x > player.x) enemy.setVelocityX(-100);
+      else enemy.setVelocityX(100);
+      
+      // Destroy kalau keluar layar
+      if (enemy.x < player.x - 1000 || enemy.x > player.x + 1000) {
+        enemy.destroy();
       }
-    });
+    }
   });
 
-  enemies = enemies.filter(e => e.hp > 0);
-  attacks = attacks.filter(a => !a.hit);
+  // Update HP UI
+  hpText.setText('HP: ' + player.getData('hp'));
+}
 
-  // Spawn enemy
-  if (enemies.length < 3 && Math.random() < 0.02) spawnEnemy();
+function attack(scene) {
+  const bullet = bullets.create(player.x + (player.flipX ? -40 : 40), player.y, null);
+  bullet.setSize(30, 10);
+  bullet.setVelocityX(player.flipX ? -800 : 800);
+  bullet.lifespan = 500;
+  
+  // Visual attack
+  const rect = scene.add.rectangle(bullet.x, bullet.y, 30, 10, 0xffff00);
+  scene.time.delayedCall(100, () => rect.destroy());
+  
+  scene.time.delayedCall(500, () => bullet.destroy());
+}
 
-  // Game over
-  if (player.hp <= 0) {
+function hitEnemy(bullet, enemy) {
+  bullet.destroy();
+  enemy.setTint(0xff0000);
+  
+  // Damage
+  let hp = enemy.getData('hp') - 25;
+  enemy.setData('hp', hp);
+  
+  if (hp <= 0) {
+    // Efek ledakan
+    for(let i=0; i<10; i++) {
+      this.add.circle(enemy.x, enemy.y, 3, 0xff4444);
+    }
+    enemy.destroy();
+  } else {
+    this.time.delayedCall(100, () => enemy.clearTint());
+  }
+}
+
+function hitPlayer(player, enemy) {
+  let hp = player.getData('hp') || 100;
+  hp -= 10;
+  player.setData('hp', hp);
+  
+  player.setTint(0xff0000);
+  this.time.delayedCall(200, () => player.clearTint());
+  
+  enemy.destroy();
+  
+  if (hp <= 0) {
     alert('GAME OVER');
     location.reload();
   }
 }
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Ground
-  ctx.fillStyle = '#2c3e50';
-  ctx.fillRect(0, canvas.height - 90, canvas.width, 90);
-
-  // Draw attacks
-  ctx.fillStyle = '#ffff00';
-  attacks.forEach(a => {
-    ctx.fillRect(a.x - cameraX, a.y, a.w, a.h);
-  });
-
-  enemies.forEach(drawEnemy);
-  drawPlayer();
+function spawnEnemy(scene) {
+  const x = Phaser.Math.Between(player.x + 500, player.x + 800);
+  const enemy = enemies.create(x, 600, null);
+  enemy.setSize(40, 60);
+  enemy.setTint(0xff4444);
+  enemy.setData('hp', 50);
 }
-
-function gameLoop() {
-  update();
-  draw();
-  requestAnimationFrame(gameLoop);
-}
-
-// Controls
-document.getElementById('left').addEventListener('touchstart', () => {
-  player.vx = -player.speed;
-  player.direction = -1;
-});
-document.getElementById('left').addEventListener('touchend', () => {
-  if (player.vx < 0) player.vx = 0;
-});
-
-document.getElementById('right').addEventListener('touchstart', () => {
-  player.vx = player.speed;
-  player.direction = 1;
-});
-document.getElementById('right').addEventListener('touchend', () => {
-  if (player.vx > 0) player.vx = 0;
-});
-
-document.getElementById('jump').addEventListener('touchstart', () => {
-  if (player.onGround) {
-    player.vy = player.jumpPower;
-    player.onGround = false;
-  }
-});
-
-document.getElementById('attack').addEventListener('touchstart', () => {
-  if (player.attackCooldown === 0) {
-    player.attacking = true;
-    player.attackCooldown = 20;
-    attacks.push({
-      x: player.x + (player.direction > 0? player.w : -30),
-      y: player.y + 15,
-      w: 30,
-      h: 5,
-      hit: false
-    });
-  }
-});
-
-// Keyboard for PC
-window.addEventListener('keydown', e => {
-  if (e.key === 'ArrowLeft') { player.vx = -player.speed; player.direction = -1; }
-  if (e.key === 'ArrowRight') { player.vx = player.speed; player.direction = 1; }
-  if (e.key === ' ') { 
-    if (player.onGround) { player.vy = player.jumpPower; player.onGround = false; }
-  }
-  if (e.key === 'f') {
-    if (player.attackCooldown === 0) {
-      player.attacking = true;
-      player.attackCooldown = 20;
-      attacks.push({
-        x: player.x + (player.direction > 0? player.w : -30),
-        y: player.y + 15,
-        w: 30,
-        h: 5,
-        hit: false
-      });
-    }
-  }
-});
-
-window.addEventListener('keyup', e => {
-  if (e.key === 'ArrowLeft' && player.vx < 0) player.vx = 0;
-  if (e.key === 'ArrowRight' && player.vx > 0) player.vx = 0;
-});
-
-spawnEnemy();
-gameLoop();
 </script>
 </body>
 </html>
