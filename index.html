@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>The Abandoned Server: Last Stand</title>
+<style>
+  body { 
+    background: #0a0a0a; 
+    color: #00ff88; 
+    font-family: 'Courier New', monospace; 
+    padding: 20px;
+    line-height: 1.6;
+  }
+  #game { max-width: 700px; margin: 0 auto; }
+  #stats { 
+    border: 1px solid #00ff88; 
+    padding: 10px; 
+    margin-bottom: 15px; 
+    display: flex;
+    justify-content: space-between;
+  }
+  #text { margin-bottom: 20px; white-space: pre-line; }
+  button {
+    background: #1a1a1a;
+    color: #00ff88;
+    border: 1px solid #00ff88;
+    padding: 10px 15px;
+    margin: 5px 0;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { background: #00ff88; color: #0a0a0a; }
+  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .danger { color: #ff4444; }
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="stats"></div>
+  <div id="text"></div>
+  <div id="choices"></div>
+</div>
+
+<script>
+const game = {
+  state: {
+    hp: 100,
+    attack: 15,
+    items: [],
+    killedBosses: []
+  },
+  
+  currentScene: 'start',
+  
+  enemies: {
+    boss1: { 
+      name: "The Project Manager", 
+      hp: 80, 
+      attack: 12,
+      desc: "Orang yang ng-cancel project lo 2 jam sebelum deadline. Dia bawa 1000 bot karyawan buat ngejar lo."
+    },
+    boss2: { 
+      name: "The Lead Dev", 
+      hp: 120, 
+      attack: 18,
+      desc: "Temen lo sendiri yang nyuri credit dan nge-block akses lo. Dia kontrol server firewall."
+    }
+  },
+  
+  scenes: {
+    start: {
+      text: `Server mau di-wipe dalam 30 menit.
+      
+Lo sendirian. Di luar ada 2000 bot dan 2 boss yang nunggu.
+Tujuannya: tembus ke core server dan selamat.
+
+Status lo: HP 100. Senjata: Script exploit dasar.`,
+      choices: [
+        { text: "Hadang The Project Manager dulu", next: "fight_boss1" },
+        { text: "Langsung tembus ke The Lead Dev", next: "fight_boss2" },
+        { text: "Cari item dulu di ruang server", next: "loot" }
+      ]
+    },
+    
+    loot: {
+      text: `Lo nemu "Firewall Bypass Script" di server lama.
+      
+Attack +10. Tapi alarm udah bunyi. Nggak ada waktu lagi.`,
+      choices: [
+        { text: "Lanjut fight", next: "start",
+          effect: () => { game.state.attack += 10; }
+        }
+      ]
+    },
+    
+    fight_boss1: {
+      text: () => {
+        let enemy = {...game.enemies.boss1};
+        return `BOSS FIGHT: ${enemy.name}
+        
+${enemy.desc}
+HP Boss: ${enemy.hp}
+
+Lo harus ngalahin dia sebelum HP lo habis.`;
+      },
+      choices: [
+        { text: "Serang!", next: "battle_boss1", 
+          condition: () => game.state.hp > 0 },
+        { text: "Kabur ke boss lain", next: "fight_boss2",
+          condition: () => !game.state.killedBosses.includes('boss1') }
+      ]
+    },
+    
+    battle_boss1: {
+      text: () => {
+        let enemy = {...game.enemies.boss1};
+        let playerDmg = game.state.attack;
+        let enemyDmg = enemy.attack;
+        
+        enemy.hp -= playerDmg;
+        game.state.hp -= enemyDmg;
+        
+        if (enemy.hp <= 0) {
+          game.state.killedBosses.push('boss1');
+          return `Kena! The Project Manager down.
+          
+Bot-botnya bingung tanpa komando. 1000 musuh mundur.
+HP lo sisa: ${game.state.hp}
+
+[LOOT] Dapet "Admin Key"`;
+        }
+        
+        if (game.state.hp <= 0) {
+          return `Lo tumbang. 2000 bot nginjek lo sampe server wipe selesai.
+          
+[GAME OVER]`;
+        }
+        
+        return `Lo serang kena ${playerDmg} damage.
+Boss bales ${enemyDmg} damage.
+
+HP Lo: ${game.state.hp}
+HP Boss: ${enemy.hp}
+
+Lanjut?`;
+      },
+      choices: [
+        { text: "Serang lagi!", next: "battle_boss1",
+          condition: () => game.state.hp > 0 && game.enemies.boss1.hp > 0 },
+        { text: "Kabur kalau menang", next: "win_check",
+          condition: () => game.enemies.boss1.hp <= 0 }
+      ]
+    },
+    
+    fight_boss2: {
+      text: () => {
+        let enemy = {...game.enemies.boss2};
+        return `BOSS FIGHT: ${enemy.name}
+        
+${enemy.desc}
+HP Boss: ${enemy.hp}
+
+Ini yang paling sakit. Dia tau semua kelemahan lo.`;
+      },
+      choices: [
+        { text: "Serang!", next: "battle_boss2" }
+      ]
+    },
+    
+    battle_boss2: {
+      text: () => {
+        let enemy = {...game.enemies.boss2};
+        let playerDmg = game.state.attack;
+        let enemyDmg = enemy.attack;
+        
+        enemy.hp -= playerDmg;
+        game.state.hp -= enemyDmg;
+        
+        if (enemy.hp <= 0) {
+          game.state.killedBosses.push('boss2');
+          return `The Lead Dev jatuh. Firewall runtuh.
+          
+1000 sisa bot nggak bisa ngapa-ngapain.
+HP lo sisa: ${game.state.hp}
+
+[LOOT] Dapet "Root Access"`;
+        }
+        
+        if (game.state.hp <= 0) {
+          return `Firewall ngunci lo. Lo ke-delete bareng server.
+          
+[GAME OVER]`;
+        }
+        
+        return `Serang ${playerDmg} damage.
+Boss bales ${enemyDmg} damage.
+
+HP Lo: ${game.state.hp}
+HP Boss: ${enemy.hp}`;
+      },
+      choices: [
+        { text: "Serang lagi!", next: "battle_boss2",
+          condition: () => game.state.hp > 0 && game.enemies.boss2.hp > 0 },
+        { text: "Cek status kemenangan", next: "win_check",
+          condition: () => game.enemies.boss2.hp <= 0 }
+      ]
+    },
+    
+    win_check: {
+      text: () => {
+        if (game.state.killedBosses.length >= 2) {
+          return `DUA BOSS MATI. 2000 bot bubar.
+          
+Lo tembus ke core server. Data aman. Server selamat.
+Lo sendirian lawan ribuan dan menang.
+
+[ENDING: The Last Dev Standing]`;
+        }
+        return `Masih ada 1 boss lagi. Lo nggak bisa keluar kalau belum beres semua.`;
+      },
+      choices: [
+        { text: "Balik ke start", next: "start",
+          condition: () => game.state.killedBosses.length < 2 },
+        { text: "Main lagi", next: "restart" }
+      ]
+    },
+    
+    restart: {
+      text: "Reset semua. Mau coba strategi lain?",
+      choices: [{ text: "Mulai lagi", next: "start",
+        effect: () => {
+          game.state = { hp: 100, attack: 15, items: [], killedBosses: [] };
+          game.enemies.boss1.hp = 80;
+          game.enemies.boss2.hp = 120;
+        }
+      }]
+    }
+  },
+  
+  render: function() {
+    // Update stats
+    document.getElementById('stats').innerHTML = 
+      `HP: ${this.state.hp} | ATK: ${this.state.attack} | Boss Kill: ${this.state.killedBosses.length}/2`;
+    
+    // Get scene
+    const scene = this.scenes[this.currentScene];
+    const text = typeof scene.text === 'function' ? scene.text() : scene.text;
+    document.getElementById('text').innerText = text;
+    
+    // Run effect if any
+    if (scene.effect) scene.effect();
+    
+    // Render choices
+    const choicesDiv = document.getElementById('choices');
+    choicesDiv.innerHTML = '';
+    
+    scene.choices.forEach(choice => {
+      if (choice.condition && !choice.condition()) return;
+      
+      const btn = document.createElement('button');
+      btn.innerText = choice.text;
+      btn.onclick = () => {
+        this.currentScene = choice.next;
+        this.render();
+      };
+      choicesDiv.appendChild(btn);
+    });
+    
+    // Game over check
+    if (this.state.hp <= 0) {
+      choicesDiv.innerHTML = '<button onclick="location.reload()">Coba Lagi</button>';
+    }
+  }
+};
+
+game.render();
+</script>
+</body>
+    </html>
