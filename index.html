@@ -2,196 +2,317 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shadow Strike Lite</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Shadow Strike</title>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <style>
-  body { margin: 0; background: #000; overflow: hidden; }
-  canvas { display: block; margin: 0 auto; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { 
+    background: #0a0a0a; 
+    overflow: hidden; 
+    font-family: 'Courier New', monospace;
+    touch-action: none;
+  }
+  canvas { display: block; }
+  
+  #ui {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    color: #00ff88;
+    font-size: 18px;
+    text-shadow: 2px 2px 4px #000;
+    z-index: 10;
+  }
+  
+  #controls {
+    position: absolute;
+    bottom: 25px;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 25px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  
+  .btn {
+    width: 75px;
+    height: 75px;
+    background: rgba(0,255,136,0.15);
+    border: 2px solid #00ff88;
+    border-radius: 50%;
+    color: #00ff88;
+    font-size: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: all;
+    user-select: none;
+    backdrop-filter: blur(5px);
+  }
+  
+  .btn:active {
+    background: rgba(0,255,136,0.4);
+    transform: scale(0.95);
+  }
 </style>
 </head>
 <body>
+<div id="ui">
+  <div id="hp">HP: 100</div>
+  <div id="wave">WAVE: 1</div>
+  <div id="kills">KILLS: 0</div>
+</div>
+
+<div id="controls">
+  <div style="display:flex; gap:18px;">
+    <div class="btn" id="left">◀</div>
+    <div class="btn" id="right">▶</div>
+  </div>
+  <div style="display:flex; gap:18px;">
+    <div class="btn" id="jump">⤴</div>
+    <div class="btn" id="attack">⚔</div>
+  </div>
+</div>
+
 <script>
 const config = {
   type: Phaser.AUTO,
-  width: 1280,
-  height: 720,
+  width: window.innerWidth,
+  height: window.innerHeight,
   physics: {
     default: 'arcade',
-    arcade: { gravity: { y: 1000 }, debug: false }
+    arcade: { gravity: { y: 1300 }, debug: false }
   },
-  scene: {
-    preload: preload,
-    create: create,
-    update: update
-  }
+  scene: { preload, create, update }
 };
 
 const game = new Phaser.Game(config);
-
-// Variabel global
-let player, cursors, attackKey, enemies, bullets, hpText, attackCooldown = 0;
+let player, cursors, enemies, attacks, hp = 100, kills = 0, wave = 1, attacking = false;
+let leftDown = false, rightDown = false;
 
 function preload() {
-  // Karena kita nggak punya sprite, pakai shape bawaan Phaser dulu
-  // Nanti ganti URL ini jadi spritesheet lu
-  this.load.image('bg', 'https://labs.phaser.io/assets/skies/space3.png');
+  // Background gradient
+  this.add.graphics()
+    .fillGradientStyle(0x1a1a2e, 0x1a1a2e, 0x16213e, 0x16213e, 1)
+    .fillRect(0, 0, 6000, 2000);
+  
+  // Load gambar lo jadi player sprite
+  this.load.image('playerSprite', 'player.png');
+  
+  // Ground texture
   this.load.image('ground', 'https://labs.phaser.io/assets/sprites/platform.png');
 }
 
 function create() {
-  // Background
-  this.add.image(640, 360, 'bg').setScale(2);
+  const scene = this;
+  
+  // World size
+  this.physics.world.setBounds(0, 0, 6000, this.scale.height);
   
   // Ground
-  const platforms = this.physics.add.staticGroup();
-  platforms.create(640, 700, 'ground').setScale(4).refreshBody();
-
-  // Player
-  player = this.physics.add.sprite(100, 600, null);
-  player.setSize(40, 60);
-  player.setOffset(0, 0);
-  player.setCollideWorldBounds(true);
+  const ground = this.physics.add.staticGroup();
+  ground.create(3000, this.scale.height - 40, 'ground').setScale(10, 2).refreshBody();
   
-  // Bikin player keliatan pake rectangle
-  player.setTint(0x00ff88);
-  this.add.rectangle(player.x, player.y, 40, 60, 0x00ff88);
-
+  // Player - pake gambar lo
+  player = this.physics.add.sprite(200, 500, 'playerSprite');
+  player.setDisplaySize(70, 90);
+  player.setCollideWorldBounds(true);
+  player.setData('hp', 100);
+  
   // Enemy group
   enemies = this.physics.add.group();
-  spawnEnemy(this);
-
-  // Attack hitbox
-  bullets = this.physics.add.group();
-
-  // Collision
-  this.physics.add.collider(player, platforms);
-  this.physics.add.collider(enemies, platforms);
+  attacks = this.physics.add.group();
   
-  // Attack hit enemy
-  this.physics.add.overlap(bullets, enemies, hitEnemy, null, this);
-  
-  // Enemy touch player
+  // Collisions
+  this.physics.add.collider(player, ground);
+  this.physics.add.collider(enemies, ground);
+  this.physics.add.overlap(attacks, enemies, hitEnemy, null, this);
   this.physics.add.overlap(player, enemies, hitPlayer, null, this);
-
+  
+  // Camera follow
+  this.cameras.main.startFollow(player);
+  this.cameras.main.setBounds(0, 0, 6000, this.scale.height);
+  this.cameras.main.setZoom(1);
+  
+  // Spawn awal
+  for(let i = 0; i < 3; i++) {
+    spawnEnemy(this, 700 + i * 350);
+  }
+  
   // Controls
+  setupControls(this);
   cursors = this.input.keyboard.createCursorKeys();
-  attackKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
-
-  // UI
-  hpText = this.add.text(20, 20, 'HP: 100', { 
-    fontSize: '32px', 
-    fill: '#00ff88',
-    fontFamily: 'Courier New'
+  this.input.keyboard.on('keydown-F', () => attack(this));
+  this.input.keyboard.on('keydown-SPACE', () => {
+    if (player.body.touching.down) player.setVelocityY(-700);
   });
   
-  this.add.text(20, 60, 'Controls: Arrow Keys, F to Attack', { 
-    fontSize: '18px', 
-    fill: '#fff' 
+  // Auto spawn enemy tiap 4 detik
+  this.time.addEvent({ 
+    delay: 4000, 
+    callback: () => {
+      if (enemies.countActive() < 6) {
+        spawnEnemy(this, player.x + 800);
+      }
+    }, 
+    loop: true 
   });
-
-  // Spawn enemy tiap 3 detik
-  this.time.addEvent({ delay: 3000, callback: () => spawnEnemy(this), loop: true });
 }
 
 function update() {
   // Movement
-  if (cursors.left.isDown) {
-    player.setVelocityX(-300);
-    player.flipX = true;
-  } else if (cursors.right.isDown) {
-    player.setVelocityX(300);
-    player.flipX = false;
+  if (cursors.left.isDown || leftDown) {
+    player.setVelocityX(-350);
+    player.setFlipX(true);
+  } else if (cursors.right.isDown || rightDown) {
+    player.setVelocityX(350);
+    player.setFlipX(false);
   } else {
     player.setVelocityX(0);
   }
-
-  // Jump
-  if (cursors.up.isDown && player.body.touching.down) {
-    player.setVelocityY(-500);
-  }
-
-  // Attack
-  if (Phaser.Input.Keyboard.JustDown(attackKey) && attackCooldown <= 0) {
-    attack(this);
-    attackCooldown = 20;
-  }
   
-  if (attackCooldown > 0) attackCooldown--;
-
-  // Update enemy AI
+  // Update enemies AI
   enemies.children.iterate(enemy => {
     if (enemy && enemy.active) {
-      // Jalan ke player
-      if (enemy.x > player.x) enemy.setVelocityX(-100);
-      else enemy.setVelocityX(100);
+      if (enemy.x > player.x) {
+        enemy.setVelocityX(-130);
+        enemy.setFlipX(true);
+      } else {
+        enemy.setVelocityX(130);
+        enemy.setFlipX(false);
+      }
       
-      // Destroy kalau keluar layar
-      if (enemy.x < player.x - 1000 || enemy.x > player.x + 1000) {
+      // Hapus enemy yang kejauhan
+      if (Math.abs(enemy.x - player.x) > 1500) {
         enemy.destroy();
       }
     }
   });
-
-  // Update HP UI
-  hpText.setText('HP: ' + player.getData('hp'));
-}
-
-function attack(scene) {
-  const bullet = bullets.create(player.x + (player.flipX ? -40 : 40), player.y, null);
-  bullet.setSize(30, 10);
-  bullet.setVelocityX(player.flipX ? -800 : 800);
-  bullet.lifespan = 500;
   
-  // Visual attack
-  const rect = scene.add.rectangle(bullet.x, bullet.y, 30, 10, 0xffff00);
-  scene.time.delayedCall(100, () => rect.destroy());
+  // Update UI
+  document.getElementById('hp').textContent = `HP: ${hp}`;
+  document.getElementById('wave').textContent = `WAVE: ${wave}`;
+  document.getElementById('kills').textContent = `KILLS: ${kills}`;
   
-  scene.time.delayedCall(500, () => bullet.destroy());
-}
-
-function hitEnemy(bullet, enemy) {
-  bullet.destroy();
-  enemy.setTint(0xff0000);
-  
-  // Damage
-  let hp = enemy.getData('hp') - 25;
-  enemy.setData('hp', hp);
-  
+  // Game over check
   if (hp <= 0) {
-    // Efek ledakan
-    for(let i=0; i<10; i++) {
-      this.add.circle(enemy.x, enemy.y, 3, 0xff4444);
-    }
-    enemy.destroy();
-  } else {
-    this.time.delayedCall(100, () => enemy.clearTint());
-  }
-}
-
-function hitPlayer(player, enemy) {
-  let hp = player.getData('hp') || 100;
-  hp -= 10;
-  player.setData('hp', hp);
-  
-  player.setTint(0xff0000);
-  this.time.delayedCall(200, () => player.clearTint());
-  
-  enemy.destroy();
-  
-  if (hp <= 0) {
-    alert('GAME OVER');
+    alert(`GAME OVER\nKills: ${kills}\nWave: ${wave}`);
     location.reload();
   }
 }
 
-function spawnEnemy(scene) {
-  const x = Phaser.Math.Between(player.x + 500, player.x + 800);
-  const enemy = enemies.create(x, 600, null);
-  enemy.setSize(40, 60);
-  enemy.setTint(0xff4444);
-  enemy.setData('hp', 50);
+function attack(scene) {
+  if (attacking) return;
+  attacking = true;
+  
+  // Hitbox attack
+  const direction = player.flipX ? -1 : 1;
+  const attackBox = attacks.create(player.x + direction * 55, player.y, null);
+  attackBox.setSize(70, 35);
+  
+  // Visual slash effect
+  const slash = scene.add.rectangle(attackBox.x, attackBox.y, 70, 35, 0xffff00, 0.6);
+  scene.tweens.add({
+    targets: slash,
+    alpha: 0,
+    duration: 180,
+    onComplete: () => slash.destroy()
+  });
+  
+  scene.time.delayedCall(220, () => {
+    attackBox.destroy();
+    attacking = false;
+  });
 }
+
+function hitEnemy(attack, enemy) {
+  attack.destroy();
+  enemy.setTint(0xff0000);
+  
+  let eHP = enemy.getData('hp') - 40;
+  enemy.setData('hp', eHP);
+  
+  // Particle effect
+  for(let i = 0; i < 8; i++) {
+    this.add.circle(enemy.x, enemy.y, 3, 0xff4444)
+      .setVelocity(Phaser.Math.Between(-200, 200), Phaser.Math.Between(-300, -100))
+      .setAlpha(0.8);
+  }
+  
+  if (eHP <= 0) {
+    kills++;
+    enemy.destroy();
+    
+    // Naik wave tiap 5 kill
+    if (kills % 5 === 0) {
+      wave++;
+      // Heal dikit pas naik wave
+      hp = Math.min(100, hp + 20);
+    }
+  } else {
+    this.time.delayedCall(120, () => enemy.clearTint());
+  }
+}
+
+function hitPlayer(player, enemy) {
+  hp -= 18;
+  player.setTint(0xff0000);
+  this.time.delayedCall(200, () => player.clearTint());
+  
+  // Knockback
+  player.setVelocityX(enemy.x < player.x ? 200 : -200);
+  player.setVelocityY(-200);
+  
+  enemy.destroy();
+}
+
+function spawnEnemy(scene, x) {
+  const enemy = enemies.create(x, scene.scale.height - 120, null);
+  enemy.setSize(45, 65);
+  enemy.setTint(0xff4444);
+  enemy.setData('hp', 70 + wave * 20);
+  
+  // Visual enemy - rectangle merah
+  enemy.sprite = scene.add.rectangle(enemy.x, enemy.y, 45, 65, 0xff4444);
+}
+
+function setupControls(scene) {
+  const leftBtn = document.getElementById('left');
+  const rightBtn = document.getElementById('right');
+  const jumpBtn = document.getElementById('jump');
+  const attackBtn = document.getElementById('attack');
+  
+  // Left button
+  leftBtn.addEventListener('touchstart', () => leftDown = true);
+  leftBtn.addEventListener('touchend', () => leftDown = false);
+  leftBtn.addEventListener('mousedown', () => leftDown = true);
+  leftBtn.addEventListener('mouseup', () => leftDown = false);
+  
+  // Right button
+  rightBtn.addEventListener('touchstart', () => rightDown = true);
+  rightBtn.addEventListener('touchend', () => rightDown = false);
+  rightBtn.addEventListener('mousedown', () => rightDown = true);
+  rightBtn.addEventListener('mouseup', () => rightDown = false);
+  
+  // Jump button
+  jumpBtn.addEventListener('touchstart', () => {
+    if (player.body.touching.down) player.setVelocityY(-700);
+  });
+  jumpBtn.addEventListener('mousedown', () => {
+    if (player.body.touching.down) player.setVelocityY(-700);
+  });
+  
+  // Attack button
+  attackBtn.addEventListener('touchstart', () => attack(scene));
+  attackBtn.addEventListener('mousedown', () => attack(scene));
+}
+
+// Resize handler
+window.addEventListener('resize', () => {
+  game.scale.resize(window.innerWidth, window.innerHeight);
+});
 </script>
 </body>
-</html>
+  </html>
