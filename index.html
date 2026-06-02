@@ -13,7 +13,13 @@
     font-family: 'Courier New', monospace;
     touch-action: none;
   }
-  canvas { display: block; }
+  canvas { 
+    display: block; 
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+  }
   
   #ui {
     position: absolute;
@@ -23,6 +29,7 @@
     font-size: 18px;
     text-shadow: 2px 2px 4px #000;
     z-index: 10;
+    pointer-events: none;
   }
   
   #controls {
@@ -39,7 +46,7 @@
   .btn {
     width: 75px;
     height: 75px;
-    background: rgba(0,255,136,0.15);
+    background: rgba(0,255,136,0.25);
     border: 2px solid #00ff88;
     border-radius: 50%;
     color: #00ff88;
@@ -53,8 +60,8 @@
   }
   
   .btn:active {
-    background: rgba(0,255,136,0.4);
-    transform: scale(0.95);
+    background: rgba(0,255,136,0.5);
+    transform: scale(0.92);
   }
 </style>
 </head>
@@ -81,6 +88,7 @@ const config = {
   type: Phaser.AUTO,
   width: window.innerWidth,
   height: window.innerHeight,
+  backgroundColor: '#1a1a2e',
   physics: {
     default: 'arcade',
     arcade: { gravity: { y: 1300 }, debug: false }
@@ -93,15 +101,7 @@ let player, cursors, enemies, attacks, hp = 100, kills = 0, wave = 1, attacking 
 let leftDown = false, rightDown = false;
 
 function preload() {
-  // Background gradient
-  this.add.graphics()
-    .fillGradientStyle(0x1a1a2e, 0x1a1a2e, 0x16213e, 0x16213e, 1)
-    .fillRect(0, 0, 6000, 2000);
-  
-  // Load gambar lo jadi player sprite
-  this.load.image('playerSprite', 'player.png');
-  
-  // Ground texture
+  // Ground
   this.load.image('ground', 'https://labs.phaser.io/assets/sprites/platform.png');
 }
 
@@ -109,17 +109,20 @@ function create() {
   const scene = this;
   
   // World size
-  this.physics.world.setBounds(0, 0, 6000, this.scale.height);
+  this.physics.world.setBounds(0, 0, 4000, this.scale.height);
   
   // Ground
   const ground = this.physics.add.staticGroup();
-  ground.create(3000, this.scale.height - 40, 'ground').setScale(10, 2).refreshBody();
+  ground.create(2000, this.scale.height - 40, 'ground').setScale(8, 2).refreshBody();
   
-  // Player - pake gambar lo
-  player = this.physics.add.sprite(200, 500, 'playerSprite');
-  player.setDisplaySize(70, 90);
+  // Player - pake rectangle dulu biar ga error
+  player = this.physics.add.sprite(200, 500, null);
+  player.setSize(40, 60);
   player.setCollideWorldBounds(true);
   player.setData('hp', 100);
+  
+  // Visual player
+  player.sprite = this.add.rectangle(player.x, player.y, 40, 60, 0x00ff88);
   
   // Enemy group
   enemies = this.physics.add.group();
@@ -133,13 +136,10 @@ function create() {
   
   // Camera follow
   this.cameras.main.startFollow(player);
-  this.cameras.main.setBounds(0, 0, 6000, this.scale.height);
-  this.cameras.main.setZoom(1);
+  this.cameras.main.setBounds(0, 0, 4000, this.scale.height);
   
-  // Spawn awal
-  for(let i = 0; i < 3; i++) {
-    spawnEnemy(this, 700 + i * 350);
-  }
+  // Spawn enemy awal
+  spawnEnemy(this, 700);
   
   // Controls
   setupControls(this);
@@ -149,12 +149,12 @@ function create() {
     if (player.body.touching.down) player.setVelocityY(-700);
   });
   
-  // Auto spawn enemy tiap 4 detik
+  // Auto spawn enemy
   this.time.addEvent({ 
-    delay: 4000, 
+    delay: 3500, 
     callback: () => {
-      if (enemies.countActive() < 6) {
-        spawnEnemy(this, player.x + 800);
+      if (enemies.countActive() < 5) {
+        spawnEnemy(this, player.x + 700);
       }
     }, 
     loop: true 
@@ -165,28 +165,34 @@ function update() {
   // Movement
   if (cursors.left.isDown || leftDown) {
     player.setVelocityX(-350);
-    player.setFlipX(true);
+    player.sprite.setFillStyle(0x00cc66);
   } else if (cursors.right.isDown || rightDown) {
     player.setVelocityX(350);
-    player.setFlipX(false);
+    player.sprite.setFillStyle(0x00cc66);
   } else {
     player.setVelocityX(0);
+    player.sprite.setFillStyle(0x00ff88);
   }
   
-  // Update enemies AI
+  // Sync visual sprite
+  player.sprite.x = player.x;
+  player.sprite.y = player.y;
+  
+  // Update enemies
   enemies.children.iterate(enemy => {
     if (enemy && enemy.active) {
+      enemy.sprite.x = enemy.x;
+      enemy.sprite.y = enemy.y;
+      
       if (enemy.x > player.x) {
         enemy.setVelocityX(-130);
-        enemy.setFlipX(true);
       } else {
         enemy.setVelocityX(130);
-        enemy.setFlipX(false);
       }
       
-      // Hapus enemy yang kejauhan
-      if (Math.abs(enemy.x - player.x) > 1500) {
+      if (Math.abs(enemy.x - player.x) > 1200) {
         enemy.destroy();
+        enemy.sprite.destroy();
       }
     }
   });
@@ -196,7 +202,7 @@ function update() {
   document.getElementById('wave').textContent = `WAVE: ${wave}`;
   document.getElementById('kills').textContent = `KILLS: ${kills}`;
   
-  // Game over check
+  // Game over
   if (hp <= 0) {
     alert(`GAME OVER\nKills: ${kills}\nWave: ${wave}`);
     location.reload();
@@ -207,21 +213,13 @@ function attack(scene) {
   if (attacking) return;
   attacking = true;
   
-  // Hitbox attack
   const direction = player.flipX ? -1 : 1;
-  const attackBox = attacks.create(player.x + direction * 55, player.y, null);
-  attackBox.setSize(70, 35);
+  const attackBox = attacks.create(player.x + direction * 50, player.y, null);
+  attackBox.setSize(60, 25);
   
-  // Visual slash effect
-  const slash = scene.add.rectangle(attackBox.x, attackBox.y, 70, 35, 0xffff00, 0.6);
-  scene.tweens.add({
-    targets: slash,
-    alpha: 0,
-    duration: 180,
-    onComplete: () => slash.destroy()
-  });
-  
-  scene.time.delayedCall(220, () => {
+  const slash = scene.add.rectangle(attackBox.x, attackBox.y, 60, 25, 0xffff00, 0.7);
+  scene.time.delayedCall(150, () => slash.destroy());
+  scene.time.delayedCall(200, () => {
     attackBox.destroy();
     attacking = false;
   });
@@ -230,52 +228,50 @@ function attack(scene) {
 function hitEnemy(attack, enemy) {
   attack.destroy();
   enemy.setTint(0xff0000);
+  enemy.sprite.setFillStyle(0xff0000);
   
-  let eHP = enemy.getData('hp') - 40;
+  let eHP = enemy.getData('hp') - 35;
   enemy.setData('hp', eHP);
-  
-  // Particle effect
-  for(let i = 0; i < 8; i++) {
-    this.add.circle(enemy.x, enemy.y, 3, 0xff4444)
-      .setVelocity(Phaser.Math.Between(-200, 200), Phaser.Math.Between(-300, -100))
-      .setAlpha(0.8);
-  }
   
   if (eHP <= 0) {
     kills++;
     enemy.destroy();
+    enemy.sprite.destroy();
     
-    // Naik wave tiap 5 kill
     if (kills % 5 === 0) {
       wave++;
-      // Heal dikit pas naik wave
-      hp = Math.min(100, hp + 20);
+      hp = Math.min(100, hp + 15);
     }
   } else {
-    this.time.delayedCall(120, () => enemy.clearTint());
+    this.time.delayedCall(100, () => {
+      enemy.clearTint();
+      enemy.sprite.setFillStyle(0xff4444);
+    });
   }
 }
 
 function hitPlayer(player, enemy) {
   hp -= 18;
   player.setTint(0xff0000);
-  this.time.delayedCall(200, () => player.clearTint());
+  player.sprite.setFillStyle(0xff0000);
+  this.time.delayedCall(200, () => {
+    player.clearTint();
+    player.sprite.setFillStyle(0x00ff88);
+  });
   
-  // Knockback
-  player.setVelocityX(enemy.x < player.x ? 200 : -200);
+  player.setVelocityX(enemy.x < player.x ? 250 : -250);
   player.setVelocityY(-200);
   
   enemy.destroy();
+  enemy.sprite.destroy();
 }
 
 function spawnEnemy(scene, x) {
-  const enemy = enemies.create(x, scene.scale.height - 120, null);
-  enemy.setSize(45, 65);
-  enemy.setTint(0xff4444);
-  enemy.setData('hp', 70 + wave * 20);
+  const enemy = enemies.create(x, scene.scale.height - 100, null);
+  enemy.setSize(40, 60);
+  enemy.setData('hp', 60 + wave * 15);
   
-  // Visual enemy - rectangle merah
-  enemy.sprite = scene.add.rectangle(enemy.x, enemy.y, 45, 65, 0xff4444);
+  enemy.sprite = scene.add.rectangle(enemy.x, enemy.y, 40, 60, 0xff4444);
 }
 
 function setupControls(scene) {
@@ -284,29 +280,27 @@ function setupControls(scene) {
   const jumpBtn = document.getElementById('jump');
   const attackBtn = document.getElementById('attack');
   
-  // Left button
-  leftBtn.addEventListener('touchstart', () => leftDown = true);
+  leftBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    leftDown = true;
+  });
   leftBtn.addEventListener('touchend', () => leftDown = false);
-  leftBtn.addEventListener('mousedown', () => leftDown = true);
-  leftBtn.addEventListener('mouseup', () => leftDown = false);
   
-  // Right button
-  rightBtn.addEventListener('touchstart', () => rightDown = true);
+  rightBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    rightDown = true;
+  });
   rightBtn.addEventListener('touchend', () => rightDown = false);
-  rightBtn.addEventListener('mousedown', () => rightDown = true);
-  rightBtn.addEventListener('mouseup', () => rightDown = false);
   
-  // Jump button
-  jumpBtn.addEventListener('touchstart', () => {
-    if (player.body.touching.down) player.setVelocityY(-700);
-  });
-  jumpBtn.addEventListener('mousedown', () => {
+  jumpBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
     if (player.body.touching.down) player.setVelocityY(-700);
   });
   
-  // Attack button
-  attackBtn.addEventListener('touchstart', () => attack(scene));
-  attackBtn.addEventListener('mousedown', () => attack(scene));
+  attackBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    attack(scene);
+  });
 }
 
 // Resize handler
@@ -315,4 +309,4 @@ window.addEventListener('resize', () => {
 });
 </script>
 </body>
-  </html>
+       </html>
