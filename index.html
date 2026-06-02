@@ -3,70 +3,49 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Warzone Lite</title>
+<title>Shadow Strike</title>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     background: #0a0a0a;
-    color: #00ff88;
-    font-family: 'Courier New', monospace;
     overflow: hidden;
     touch-action: none;
   }
-  canvas { display: block; background: #1a1a1a; }
-  #ui {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    right: 10px;
-    display: flex;
-    justify-content: space-between;
-    font-size: 14px;
-    text-shadow: 0 0 5px #00ff88;
-  }
-  #ammo {
+  canvas { display: block; background: linear-gradient(to bottom, #2c3e50, #34495e); }
+  #controls {
     position: absolute;
     bottom: 20px;
-    right: 20px;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 20px;
+  }
+  .btn {
+    width: 60px;
+    height: 60px;
+    background: rgba(255,255,255,0.2);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    color: white;
     font-size: 24px;
-    font-weight: bold;
-  }
-  #gameOver {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    display: none;
-    background: rgba(0,0,0,0.8);
-    padding: 30px;
-    border: 2px solid #ff4444;
-  }
-  button {
-    margin-top: 20px;
-    padding: 15px 30px;
-    background: #ff4444;
-    color: #fff;
-    border: none;
-    font-family: inherit;
-    font-size: 18px;
-    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 </style>
 </head>
 <body>
-<div id="ui">
-  <div id="hp">HP: 100</div>
-  <div id="wave">WAVE: 1</div>
-  <div id="kills">KILLS: 0</div>
-</div>
-<div id="ammo">30/30</div>
-<div id="gameOver">
-  <h1 style="color:#ff4444">MISSION FAILED</h1>
-  <p id="finalScore">Kills: 0</p>
-  <button onclick="location.reload()">RETRY</button>
-</div>
 <canvas id="game"></canvas>
+<div id="controls">
+  <div>
+    <div class="btn" id="left">◀</div>
+    <div class="btn" id="right">▶</div>
+  </div>
+  <div>
+    <div class="btn" id="jump">⤴</div>
+    <div class="btn" id="attack">⚔</div>
+  </div>
+</div>
 
 <script>
 const canvas = document.getElementById('game');
@@ -75,258 +54,145 @@ canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 const player = {
-  x: canvas.width / 2,
-  y: canvas.height / 2,
-  r: 18,
+  x: 100,
+  y: canvas.height - 150,
+  w: 40,
+  h: 60,
+  vx: 0,
+  vy: 0,
+  speed: 5,
+  jumpPower: -15,
+  onGround: true,
   hp: 100,
-  speed: 4,
-  angle: 0,
-  ammo: 30,
-  maxAmmo: 30,
-  reloading: false,
-  recoil: 0
+  attacking: false,
+  attackCooldown: 0,
+  direction: 1
 };
 
-let bullets = [];
+const gravity = 0.8;
 let enemies = [];
-let particles = [];
-let keys = {};
-let mouse = { x: 0, y: 0, down: false };
-let wave = 1;
-let kills = 0;
-let gameRunning = true;
+let attacks = [];
+let cameraX = 0;
+
+function spawnEnemy() {
+  enemies.push({
+    x: cameraX + canvas.width + 50,
+    y: canvas.height - 150,
+    w: 40,
+    h: 60,
+    hp: 50,
+    speed: 2,
+    attacking: false
+  });
+}
 
 function drawPlayer() {
   ctx.save();
-  ctx.translate(player.x, player.y);
-  ctx.rotate(player.angle);
-  ctx.translate(-player.recoil, 0);
+  ctx.translate(player.x - cameraX, player.y);
+  ctx.scale(player.direction, 1);
 
-  // Body
+  // Body - ganti ini jadi sprite nanti
   ctx.fillStyle = '#00ff88';
-  ctx.fillRect(-12, -12, 24, 24);
+  ctx.fillRect(0, 0, player.w, player.h);
 
-  // Gun
-  ctx.fillStyle = '#888';
-  ctx.fillRect(0, -4, 20, 8);
+  // Head
+  ctx.fillStyle = '#ffdbac';
+  ctx.fillRect(10, -20, 20, 20);
+
+  // Sword when attacking
+  if (player.attacking) {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(player.w, 15, 30, 5);
+  }
 
   ctx.restore();
+
+  // HP bar
+  ctx.fillStyle = '#ff4444';
+  ctx.fillRect(20, 20, 200, 15);
+  ctx.fillStyle = '#00ff88';
+  ctx.fillRect(20, 20, 200 * (player.hp / 100), 15);
 }
 
 function drawEnemy(e) {
   ctx.save();
-  ctx.translate(e.x, e.y);
+  ctx.translate(e.x - cameraX, e.y);
 
-  // Body
   ctx.fillStyle = '#ff4444';
-  ctx.fillRect(-12, -12, 24, 24);
+  ctx.fillRect(0, 0, e.w, e.h);
 
-  // Eye
+  // HP bar kecil
   ctx.fillStyle = '#000';
-  ctx.fillRect(4, -4, 4, 4);
+  ctx.fillRect(0, -10, 40, 5);
+  ctx.fillStyle = '#ff4444';
+  ctx.fillRect(0, -10, 40 * (e.hp / 50), 5);
 
   ctx.restore();
 }
 
-function shoot() {
-  if (player.ammo <= 0 || player.reloading) {
-    if (player.ammo <= 0 &&!player.reloading) reload();
-    return;
-  }
-
-  player.ammo--;
-  player.recoil = 8;
-
-  bullets.push({
-    x: player.x + Math.cos(player.angle) * 20,
-    y: player.y + Math.sin(player.angle) * 20,
-    vx: Math.cos(player.angle) * 12,
-    vy: Math.sin(player.angle) * 12,
-    r: 4
-  });
-
-  // Muzzle flash
-  for(let i=0; i<8; i++) {
-    particles.push({
-      x: player.x + Math.cos(player.angle) * 20,
-      y: player.y + Math.sin(player.angle) * 20,
-      vx: Math.cos(player.angle + (Math.random()-0.5)) * 3,
-      vy: Math.sin(player.angle + (Math.random()-0.5)) * 3,
-      life: 15,
-      color: '#ffff00'
-    });
-  }
-}
-
-function reload() {
-  if (player.reloading) return;
-  player.reloading = true;
-  setTimeout(() => {
-    player.ammo = player.maxAmmo;
-    player.reloading = false;
-  }, 1500);
-}
-
-function spawnEnemy() {
-  const side = Math.floor(Math.random() * 4);
-  let x, y;
-
-  if (side === 0) { x = -30; y = Math.random() * canvas.height; }
-  if (side === 1) { x = canvas.width + 30; y = Math.random() * canvas.height; }
-  if (side === 2) { x = Math.random() * canvas.width; y = -30; }
-  if (side === 3) { x = Math.random() * canvas.width; y = canvas.height + 30; }
-
-  enemies.push({
-    x, y,
-    r: 15,
-    hp: 30 + wave * 10,
-    speed: 1.2 + wave * 0.15,
-    shootCooldown: 0
-  });
-}
-
 function update() {
-  if (!gameRunning) return;
+  // Physics
+  player.vy += gravity;
+  player.y += player.vy;
+  player.x += player.vx;
 
-  // Player movement
-  if (keys['w'] || keys['ArrowUp']) player.y -= player.speed;
-  if (keys['s'] || keys['ArrowDown']) player.y += player.speed;
-  if (keys['a'] || keys['ArrowLeft']) player.x -= player.speed;
-  if (keys['d'] || keys['ArrowRight']) player.x += player.speed;
-  if (keys['r']) reload();
+  if (player.y > canvas.height - 150) {
+    player.y = canvas.height - 150;
+    player.vy = 0;
+    player.onGround = true;
+  }
 
-  player.x = Math.max(player.r, Math.min(canvas.width - player.r, player.x));
-  player.y = Math.max(player.r, Math.min(canvas.height - player.r, player.y));
+  // Camera follow
+  cameraX = player.x - 200;
+  if (cameraX < 0) cameraX = 0;
 
-  // Aim at mouse/touch
-  player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-  if (mouse.down &&!player.reloading) shoot();
+  // Attack cooldown
+  if (player.attackCooldown > 0) player.attackCooldown--;
+  if (player.attackCooldown === 0) player.attacking = false;
 
-  // Recoil recovery
-  if (player.recoil > 0) player.recoil -= 0.5;
-
-  // Update bullets
-  bullets = bullets.filter(b => {
-    b.x += b.vx;
-    b.y += b.vy;
-    return b.x > -20 && b.x < canvas.width + 20 && b.y > -20 && b.y < canvas.height + 20;
-  });
-
-  // Update enemies
+  // Enemy AI
   enemies.forEach(e => {
-    const angle = Math.atan2(player.y - e.y, player.x - e.x);
-    e.x += Math.cos(angle) * e.speed;
-    e.y += Math.sin(angle) * e.speed;
+    if (e.x > player.x) e.x -= e.speed;
+    if (e.x < player.x) e.x += e.speed;
 
-    // Enemy shooting
-    e.shootCooldown--;
-    if (e.shootCooldown <= 0 && Math.random() < 0.02) {
-      e.shootCooldown = 60;
-      bullets.push({
-        x: e.x,
-        y: e.y,
-        vx: Math.cos(angle) * 8,
-        vy: Math.sin(angle) * 8,
-        r: 5,
-        enemy: true
-      });
+    // Enemy attack
+    if (Math.abs(e.x - player.x) < 50 && Math.random() < 0.02) {
+      player.hp -= 10;
     }
 
-    // Collision with player
-    if (Math.hypot(e.x - player.x, e.y - player.y) < e.r + player.r) {
-      player.hp -= 15;
-      e.hp = 0;
-    }
-
-    // Collision with bullets
-    bullets.forEach(b => {
-      if (!b.enemy && Math.hypot(e.x - b.x, e.y - b.y) < e.r + b.r) {
+    // Check attack hit
+    attacks.forEach(a => {
+      if (a.x < e.x + e.w && a.x + a.w > e.x && a.y < e.y + e.h && a.y + a.h > e.y) {
         e.hp -= 25;
-        b.hit = true;
-        for(let i=0; i<10; i++) {
-          particles.push({
-            x: e.x, y: e.y,
-            vx: (Math.random()-0.5)*5,
-            vy: (Math.random()-0.5)*5,
-            life: 20,
-            color: '#ff4444'
-          });
-        }
+        a.hit = true;
       }
     });
   });
 
-  bullets = bullets.filter(b =>!b.hit);
-  enemies = enemies.filter(e => {
-    if (e.hp <= 0) {
-      kills++;
-      return false;
-    }
-    return true;
-  });
+  enemies = enemies.filter(e => e.hp > 0);
+  attacks = attacks.filter(a => !a.hit);
 
-  // Update particles
-  particles = particles.filter(p => {
-    p.x += p.vx;
-    p.y += p.vy;
-    p.life--;
-    return p.life > 0;
-  });
+  // Spawn enemy
+  if (enemies.length < 3 && Math.random() < 0.02) spawnEnemy();
 
-  // Wave system
-  if (enemies.length === 0) {
-    wave++;
-    for(let i=0; i<wave * 6; i++) {
-      setTimeout(spawnEnemy, i * 300);
-    }
-  }
-
+  // Game over
   if (player.hp <= 0) {
-    gameRunning = false;
-    document.getElementById('gameOver').style.display = 'block';
-    document.getElementById('finalScore').textContent = `Kills: ${kills} | Wave: ${wave}`;
+    alert('GAME OVER');
+    location.reload();
   }
-
-  // UI Update
-  document.getElementById('hp').textContent = `HP: ${Math.max(0, player.hp)}/100`;
-  document.getElementById('wave').textContent = `WAVE: ${wave}`;
-  document.getElementById('kills').textContent = `KILLS: ${kills}`;
-  document.getElementById('ammo').textContent = player.reloading? 'RELOAD' : `${player.ammo}/${player.maxAmmo}`;
 }
 
 function draw() {
-  // Background grid
-  ctx.strokeStyle = '#222';
-  ctx.lineWidth = 1;
-  for(let i=0; i<canvas.width; i+=50) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, canvas.height);
-    ctx.stroke();
-  }
-  for(let i=0; i<canvas.height; i+=50) {
-    ctx.beginPath();
-    ctx.moveTo(0, i);
-    ctx.lineTo(canvas.width, i);
-    ctx.stroke();
-  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Draw particles
-  particles.forEach(p => {
-    ctx.fillStyle = p.color;
-    ctx.globalAlpha = p.life / 20;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  });
+  // Ground
+  ctx.fillStyle = '#2c3e50';
+  ctx.fillRect(0, canvas.height - 90, canvas.width, 90);
 
-  // Draw bullets
-  bullets.forEach(b => {
-    ctx.fillStyle = b.enemy? '#ff4444' : '#ffff00';
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-    ctx.fill();
+  // Draw attacks
+  ctx.fillStyle = '#ffff00';
+  attacks.forEach(a => {
+    ctx.fillRect(a.x - cameraX, a.y, a.w, a.h);
   });
 
   enemies.forEach(drawEnemy);
@@ -340,29 +206,72 @@ function gameLoop() {
 }
 
 // Controls
-window.addEventListener('keydown', e => keys[e.key] = true);
-window.addEventListener('keyup', e => keys[e.key] = false);
-
-canvas.addEventListener('mousemove', e => {
-  mouse.x = e.clientX;
-  mouse.y = e.clientY;
+document.getElementById('left').addEventListener('touchstart', () => {
+  player.vx = -player.speed;
+  player.direction = -1;
+});
+document.getElementById('left').addEventListener('touchend', () => {
+  if (player.vx < 0) player.vx = 0;
 });
 
-canvas.addEventListener('mousedown', () => mouse.down = true);
-canvas.addEventListener('mouseup', () => mouse.down = false);
-
-canvas.addEventListener('touchmove', e => {
-  const touch = e.touches[0];
-  mouse.x = touch.clientX;
-  mouse.y = touch.clientY;
+document.getElementById('right').addEventListener('touchstart', () => {
+  player.vx = player.speed;
+  player.direction = 1;
+});
+document.getElementById('right').addEventListener('touchend', () => {
+  if (player.vx > 0) player.vx = 0;
 });
 
-canvas.addEventListener('touchstart', () => mouse.down = true);
-canvas.addEventListener('touchend', () => mouse.down = false);
+document.getElementById('jump').addEventListener('touchstart', () => {
+  if (player.onGround) {
+    player.vy = player.jumpPower;
+    player.onGround = false;
+  }
+});
 
-// Start
-for(let i=0; i<8; i++) spawnEnemy();
+document.getElementById('attack').addEventListener('touchstart', () => {
+  if (player.attackCooldown === 0) {
+    player.attacking = true;
+    player.attackCooldown = 20;
+    attacks.push({
+      x: player.x + (player.direction > 0? player.w : -30),
+      y: player.y + 15,
+      w: 30,
+      h: 5,
+      hit: false
+    });
+  }
+});
+
+// Keyboard for PC
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') { player.vx = -player.speed; player.direction = -1; }
+  if (e.key === 'ArrowRight') { player.vx = player.speed; player.direction = 1; }
+  if (e.key === ' ') { 
+    if (player.onGround) { player.vy = player.jumpPower; player.onGround = false; }
+  }
+  if (e.key === 'f') {
+    if (player.attackCooldown === 0) {
+      player.attacking = true;
+      player.attackCooldown = 20;
+      attacks.push({
+        x: player.x + (player.direction > 0? player.w : -30),
+        y: player.y + 15,
+        w: 30,
+        h: 5,
+        hit: false
+      });
+    }
+  }
+});
+
+window.addEventListener('keyup', e => {
+  if (e.key === 'ArrowLeft' && player.vx < 0) player.vx = 0;
+  if (e.key === 'ArrowRight' && player.vx > 0) player.vx = 0;
+});
+
+spawnEnemy();
 gameLoop();
 </script>
 </body>
-   </html>
+</html>
